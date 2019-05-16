@@ -1,13 +1,17 @@
 from flask import Flask, session, redirect, url_for, escape, request, render_template, flash
 from bcrypt import hashpw, gensalt
 import mysql.connector
+import urllib.request
+import json
+import math
+
 import os, encodings
 
 cnx = mysql.connector.connect(  # Here I connect to the database that is setup in xampp running apache.
   host="localhost",
   user="root",
   passwd="",
-  database="names"
+  database="usersdatabase"
 )
 
 app = Flask(__name__)
@@ -28,7 +32,7 @@ def signup():
         salt = gensalt(12)
         hashed = hashpw(password.encode('utf8'), salt)  # Hashing the Password
         cursor = cnx.cursor(buffered=True)
-        sql = "INSERT INTO `database`(`email`, `display_name`, `password`, `salt`) VALUES (%s, %s, %s, %s)"     # Saving their credentials to the database!
+        sql = "INSERT INTO `users`(`email`, `display_name`, `password`, `salt`) VALUES (%s, %s, %s, %s)"     # Saving their credentials to the database!
         val = (email, name, hashed, salt)
         cursor.execute(sql, val)
         cnx.commit()
@@ -45,30 +49,21 @@ dashboard template that fills up with all the posts I grabbed from my database.
 @app.route('/login', methods=['POST', 'GET'])
 def login():
     if 'username' in session:   # Checking if they are in a session and if so loading up the homepage!
-        cursor = cnx.cursor(buffered=True)
-        sql_select_query = "select `content`, `display_name`, `post_date`, `sub-name` from `posts` ORDER BY `post_date` DESC LIMIT 8"
-        cursor.execute(sql_select_query)
-        post = cursor.fetchall()
-        print(post)
-        return render_template('dashboard.html', username=session['username'], posts=post)
+        return render_template('dashboard.html', username=session['username'])
     else:
         try:
             name_entered = request.form['name']             #Grabbing there details off of login form.
             password_entered = request.form['password']
             cursor = cnx.cursor(buffered=True)
-            sql_select_query = "select `password` from `database` where `display_name` = %s"
+            sql_select_query = "select `password` from `users` where `display_name` = %s"
             cursor.execute(sql_select_query, (name_entered,))
             record, = cursor.fetchone()                                                 #Grabbing Salt and Hash from database
-            salt_query = "select `salt` from `database` where `display_name` = %s"
+            salt_query = "select `salt` from `users` where `display_name` = %s"
             cursor.execute(salt_query, (name_entered,))
             salt = cursor.fetchone()[0]
             if hashpw(password_entered.encode('utf8'), salt) == record:     # Then comparing both hashed passwords.
-                cursor = cnx.cursor(buffered=True)
-                sql_select_query = "select `content`, `display_name`, `post_date`, `sub-name` from `posts` DESC LIMIT 8"    # Grabs all the posts!
-                cursor.execute(sql_select_query)
-                post = cursor.fetchall()
                 session['username'] = name_entered
-                return render_template('dashboard.html', username=name_entered, posts=post)     # Renders the homepage
+                return render_template('dashboard.html', username=name_entered)     # Renders the homepage
             else:
                 return 'Incorrect Username or Password'
         except:
@@ -93,12 +88,26 @@ def logout():
     return redirect('/LoginLoad')
 
 
-'''
-Loads up the html file to make posts!
-'''
-@app.route('/MakePost')
-def MakePost():
-    return render_template('post.html')
+@app.route('/stock', methods=['POST', 'GET'])
+def stock_info():
+    if 'username' in session:
+        stock = request.form['stock']
+        price = 'https://cloud.iexapis.com/stable/stock/'+stock+'/price?token=sk_7b92c602fb5c4a24a1e0eb4161b961bc'
+        logo = 'https://cloud.iexapis.com/stable/stock/'+stock+'/logo?token=sk_7b92c602fb5c4a24a1e0eb4161b961bc'
+        print(price, logo)
+        logo_json = json.loads(urllib.request.urlopen(logo).read().decode("utf-8"))
+        cursor = cnx.cursor(buffered=True)
+        sql_select_query = "select `stock_values` from `holdings` where `display_name` = (%s) and `stock_name` = (%s)"
+        cursor.execute(sql_select_query,(session['username'], stock))
+        record = cursor.fetchall()
+        print(record)
+        price_final = float(urllib.request.urlopen(price).read().decode("utf-8"))
+        listOfValues = [element for tupl in record for element in tupl]
+        return render_template('stock.html', price=price_final, logo=logo_json['url'], holdings=(sum(listOfValues)*price_final))
+    else:
+        return redirect('/LoginLoad', code=302)
+
+
 
 
 '''
@@ -106,86 +115,44 @@ Loads up the html signup file.
 '''
 @app.route('/')
 def hello_world():
-    return render_template('signup.html')
-
-
-'''
-Loads up the create a sub social html file
-'''
-@app.route('/sub_load')
-def subsocial_create():
-    return render_template('create_sub_social.html', username=session['username'])
-
-
-
-'''
-Takes the user input from login and inputs into the database!
-'''
-@app.route('/post', methods=['POST', 'GET'])
-def post():
     if 'username' in session:
-        try:
-            username_session = session['username']
-            sub = request.form['sub-choice']
-            cursor = cnx.cursor(buffered=True)
-            sql_select_query = "select `sub-name` from `sub` where `sub-name` = %s"
-            cursor.execute(sql_select_query, (sub,))
-            sub_check = cursor.fetchone()[0]
-            print(sub_check)
-            cursor = cnx.cursor(buffered=True)
-            content = request.form['Post']
-            sql = "INSERT INTO `posts`(`display_name`, `content`, `sub-name`) VALUES (%s, %s, %s)"
-            val = (username_session, content, sub)
-            cursor.execute(sql, val)
-            cnx.commit()
-            return redirect('/login')
-        except TypeError:
-            return redirect('/login')
+        return render_template('dashboard.html', username=session['username'])
+    else:
+        return render_template('signup.html')
 
 
-'''
-Displaying your profile!
-'''
-@app.route('/profile_load')
-def profile():
+@app.route('/buy', methods=['POST', 'GET'])
+def buy():
+    try:
+        stock_ammount = request.form['buy']
+        stock = request.form['stock']
+        cursor = cnx.cursor(buffered=True)
+        sql = "UPDATE `holdings` SET `stock_values` = `stock_values`+(%s) WHERE `stock_name` = (%s) AND `display_name` = (%s);"
+        val = (stock_ammount, stock, session['username'])
+        cursor.execute(sql, val)
+        cnx.commit()
+        return redirect('/stock')
+    except:
+        print('broke')
+        stock_ammount = request.form['buy']
+        stock = request.form['stock']
+        cursor = cnx.cursor(buffered=True)
+        sql = "INSERT INTO `holdings`(`display_name`, `stock_name`, `stock_values`) VALUES (%s, %s, %s)"
+        val = (session['username'], stock, stock_ammount)
+        cursor.execute(sql, val)
+        cnx.commit()
+        return redirect('/stock')
+
+@app.route('/sell', methods=['POST', 'GET'])
+def sell():
+    stock_ammount = request.form['sell']
+    stock = request.form['stock']
     cursor = cnx.cursor(buffered=True)
-    sql_select_query = "select `content`, `display_name` from `posts` where `display_name` = %s"    # Grabs all your posts
-    cursor.execute(sql_select_query, (session['username'],))
-    post = cursor.fetchall()
-    return render_template('profile.html', username=session['username'], posts=post)    # Returns a dashboard like html file custom to your posts
-
-
-'''
-Profile Search. Displays the profile of the one you searched. Very similar to the /profile_load module
-except instead of your details getting looked up its the imputed ones.
-'''
-@app.route('/profile_search', methods=['POST', 'GET'])
-def profile_search():
-    name = request.form['search']
-    cursor = cnx.cursor(buffered=True)
-    sql_select_query = "select `content`, `display_name` from `posts` where `display_name` = %s"
-    cursor.execute(sql_select_query, (name,))
-    post = cursor.fetchall()
-    return render_template('profile.html', username=name, posts=post)
-
-
-'''
-This coad takes the create a sub social html file input's and creates one now allowing people to post to that specific
-sub social.
-'''
-@app.route('/sub_create', methods=['POST', 'GET'])
-def sub_call():
-    name = request.form['sub-name']     # Grabs input from html doc.
-    cursor = cnx.cursor(buffered=True)
-    sql = "INSERT INTO `sub`(`sub-name`) VALUES (%s)"   # Puts input in the database
-    cursor.execute(sql, (name,))
+    sql = "DELETE FROM `holdings` [WHERE `stock_name` = stock];"
+    val = (session['username'], stock, stock_ammount)
+    cursor.execute(sql, val)
     cnx.commit()
-    return redirect('/login')     # Returns you back to the dashboard
-
-
-@app.route('/sub_search', methods=['POST', 'GET'])
-
-
+    return redirect('/stock', code=302)
 
 
 '''

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<style>
+    input[type=text] {
+  width: 100%;
+  padding: 12px 20px;
+  margin: 8px 0;
+  box-sizing: border-box;
+}
+    table {
+  font-family: arial, sans-serif;
+  border-collapse: collapse;
+  width: 100%;
+}
+
+    td, th {
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 8px;
+}
+
+    tr:nth-child(even) {
+  background-color: #dddddd;
+}
+</style>
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+
+<table>
+  <tr>
+    <th>Company</th>
+    <th>Price (USD)</th>
+    <th>Your Value</th>
+  </tr>
+  <tr>
+    <td><img src="{{ logo }}" alt="Logo"></td>
+    <td>{{ price }}</td>
+    <td>{{ holdings }}</td>
+  </tr>
+</table>
+
+
+
+
+<form action="/buy" method="post">
+    <label for="fname">Buy:</label>
+    <input type="text" id="fname" name="stock" placeholder="Stock Name. Ex AAPL">
+  <input type="text" id="fname" name="buy" placeholder="How many stocks. 1, 2 etc">
+    <input type="submit" value="Submit">
+</form>
+<form action="/sell" method="post">
+    <label for="fname">Sell:</label>
+        <input type="text" id="fname" name="stock" placeholder="Stock Name. Ex AAPL">
+  <input type="text" id="fname" name="sell" placeholder="How many stocks. 1, 2 etc">
+    <input type="submit" value="Submit">
+</form>
+</body>
+</html>
