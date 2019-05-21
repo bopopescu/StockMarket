@@ -11,7 +11,7 @@ cnx = mysql.connector.connect(  # Here I connect to the database that is setup i
   host="localhost",
   user="root",
   passwd="",
-  database="usersdatabase"
+  database="names"
 )
 
 app = Flask(__name__)
@@ -32,7 +32,7 @@ def signup():
         salt = gensalt(12)
         hashed = hashpw(password.encode('utf8'), salt)  # Hashing the Password
         cursor = cnx.cursor(buffered=True)
-        sql = "INSERT INTO `users`(`email`, `display_name`, `password`, `salt`) VALUES (%s, %s, %s, %s)"     # Saving their credentials to the database!
+        sql = "INSERT INTO `database`(`email`, `display_name`, `password`, `salt`) VALUES (%s, %s, %s, %s)"     # Saving their credentials to the database!
         val = (email, name, hashed, salt)
         cursor.execute(sql, val)
         cnx.commit()
@@ -55,10 +55,10 @@ def login():
             name_entered = request.form['name']             #Grabbing there details off of login form.
             password_entered = request.form['password']
             cursor = cnx.cursor(buffered=True)
-            sql_select_query = "select `password` from `users` where `display_name` = %s"
+            sql_select_query = "select `password` from `database` where `display_name` = %s"
             cursor.execute(sql_select_query, (name_entered,))
             record, = cursor.fetchone()                                                 #Grabbing Salt and Hash from database
-            salt_query = "select `salt` from `users` where `display_name` = %s"
+            salt_query = "select `salt` from `database` where `display_name` = %s"
             cursor.execute(salt_query, (name_entered,))
             salt = cursor.fetchone()[0]
             if hashpw(password_entered.encode('utf8'), salt) == record:     # Then comparing both hashed passwords.
@@ -91,19 +91,21 @@ def logout():
 @app.route('/stock', methods=['POST', 'GET'])
 def stock_info():
     if 'username' in session:
-        stock = request.form['stock']
-        price = 'https://cloud.iexapis.com/stable/stock/'+stock+'/price?token=sk_7b92c602fb5c4a24a1e0eb4161b961bc'
-        logo = 'https://cloud.iexapis.com/stable/stock/'+stock+'/logo?token=sk_7b92c602fb5c4a24a1e0eb4161b961bc'
-        print(price, logo)
-        logo_json = json.loads(urllib.request.urlopen(logo).read().decode("utf-8"))
-        cursor = cnx.cursor(buffered=True)
-        sql_select_query = "select `stock_values` from `holdings` where `display_name` = (%s) and `stock_name` = (%s)"
-        cursor.execute(sql_select_query,(session['username'], stock))
-        record = cursor.fetchall()
-        print(record)
-        price_final = float(urllib.request.urlopen(price).read().decode("utf-8"))
-        listOfValues = [element for tupl in record for element in tupl]
-        return render_template('stock.html', price=price_final, logo=logo_json['url'], holdings=(sum(listOfValues)*price_final))
+        try:
+            stock = request.form['stock']
+            price = 'https://cloud.iexapis.com/stable/stock/'+stock+'/price?token=sk_7b92c602fb5c4a24a1e0eb4161b961bc'
+            logo = 'https://cloud.iexapis.com/stable/stock/'+stock+'/logo?token=sk_7b92c602fb5c4a24a1e0eb4161b961bc'
+            print(price, logo)
+            logo_json = json.loads(urllib.request.urlopen(logo).read().decode("utf-8"))
+            cursor = cnx.cursor(buffered=True)
+            sql_select_query = "select `invested` from `holdings` where `display_name` = (%s) and `Stock_Names` = (%s)"
+            cursor.execute(sql_select_query, (session['username'], stock))
+            record = cursor.fetchall()
+            price_final = float(urllib.request.urlopen(price).read().decode("utf-8"))
+            listOfValues = [element for tupl in record for element in tupl]
+            return render_template('stock.html', price=price_final, logo=logo_json['url'], holdings=sum(listOfValues)*price_final)
+        except:
+            return 'Stock not found!'
     else:
         return redirect('/LoginLoad', code=302)
 
@@ -123,36 +125,34 @@ def hello_world():
 
 @app.route('/buy', methods=['POST', 'GET'])
 def buy():
+    print('broke')
+    stock_ammount = request.form['buy']
+    stock = request.form['stock']
+    cursor = cnx.cursor(buffered=True)
     try:
-        stock_ammount = request.form['buy']
-        stock = request.form['stock']
-        cursor = cnx.cursor(buffered=True)
-        sql = "UPDATE `holdings` SET `stock_values` = `stock_values`+(%s) WHERE `stock_name` = (%s) AND `display_name` = (%s);"
-        val = (stock_ammount, stock, session['username'])
+        sql = "UPDATE `holdings` SET `invested` = `invested`+(%s) WHERE `display_name` = (%s) AND `Stock_Names` = (%s)"
+        val = (stock_ammount, session['username'], stock)
         cursor.execute(sql, val)
         cnx.commit()
-        return redirect('/stock')
     except:
-        print('broke')
-        stock_ammount = request.form['buy']
-        stock = request.form['stock']
-        cursor = cnx.cursor(buffered=True)
-        sql = "INSERT INTO `holdings`(`display_name`, `stock_name`, `stock_values`) VALUES (%s, %s, %s)"
-        val = (session['username'], stock, stock_ammount)
+        print('Attempted')
+        sql = "INSERT INTO `holdings`(`display_name`, `Stock_Names`, `invested`, `un_invested`) VALUES (%s, %s, %s, %s) "
+        val = (session['username'], stock, stock_ammount, 0)
         cursor.execute(sql, val)
         cnx.commit()
-        return redirect('/stock')
+    return redirect('/login')
+
 
 @app.route('/sell', methods=['POST', 'GET'])
 def sell():
     stock_ammount = request.form['sell']
     stock = request.form['stock']
     cursor = cnx.cursor(buffered=True)
-    sql = "DELETE FROM `holdings` [WHERE `stock_name` = stock];"
-    val = (session['username'], stock, stock_ammount)
+    sql = "UPDATE `holdings` SET `invested` = `invested`-(%s) WHERE `display_name` = (%s) AND `Stock_Names` = (%s)"
+    val = (stock_ammount, session['username'], stock)
     cursor.execute(sql, val)
     cnx.commit()
-    return redirect('/stock', code=302)
+    return redirect('/login', code=302)
 
 
 '''
